@@ -78,98 +78,93 @@ pub fn run(
     tokens: Vec<Token>,
     token_limit: Option<usize>,
     stack_limit: Option<usize>,
-) -> Result<i32, RuntimeError> {
+) -> Result<i64, RuntimeError> {
     if tokens.is_empty() {
         return Err(RuntimeError::NoTokens);
     }
-    let mut stack: Vec<i32> = Vec::new();
+    let mut stack: Vec<i64> = Vec::new();
 
-    let mut idx = 0i64;
+    let mut ptr = 0i64;
     let mut tokens_consumed = 0;
 
     loop {
-        if idx < 0 {
+        if ptr < 0 {
             return Err(RuntimeError::BreforeProgramRead);
         }
 
-        match tokens[idx as usize] {
+        match tokens[ptr as usize] {
             Token::Num(i) => stack.push(i),
 
             Token::Opp(opp) => match opp {
                 Opp::Add => {
-                    let rhs = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
-                    let lhs = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
+                    let rhs = stack.pop().ok_or(RuntimeError::UnderRead(ptr))?;
+                    let lhs = stack.pop().ok_or(RuntimeError::UnderRead(ptr))?;
                     stack.push(lhs + rhs);
                 }
-
                 Opp::Sub => {
-                    let rhs = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
-                    let lhs = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
+                    let rhs = stack.pop().ok_or(RuntimeError::UnderRead(ptr))?;
+                    let lhs = stack.pop().ok_or(RuntimeError::UnderRead(ptr))?;
                     stack.push(lhs - rhs);
                 }
-
                 Opp::Mul => {
-                    let a1 = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
-                    let a2 = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
+                    let a1 = stack.pop().ok_or(RuntimeError::UnderRead(ptr))?;
+                    let a2 = stack.pop().ok_or(RuntimeError::UnderRead(ptr))?;
                     stack.push(a1 * a2);
                 }
-
                 Opp::Dump => {
                     for (ptr, v) in stack.iter().enumerate() {
                         println!("{ptr} | {v}")
                     }
                 }
-
                 Opp::Top => {
-                    let a = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
+                    let a = stack.pop().ok_or(RuntimeError::UnderRead(ptr))?;
                     println!("Top: {a}");
                     stack.push(a);
                 }
-
                 Opp::Swap => {
-                    let a1 = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
-                    let a2 = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
+                    let a1 = stack.pop().ok_or(RuntimeError::UnderRead(ptr))?;
+                    let a2 = stack.pop().ok_or(RuntimeError::UnderRead(ptr))?;
                     stack.push(a1);
                     stack.push(a2);
                 }
-
                 Opp::Drop => {
-                    stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
+                    stack.pop().ok_or(RuntimeError::UnderRead(ptr))?;
                 }
-
                 Opp::Hop => {
-                    let d = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
-                    idx += d as i64;
+                    let d = stack.pop().ok_or(RuntimeError::UnderRead(ptr))?;
+                    ptr += d;
                 }
-
                 Opp::Div => {
-                    let rhs = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
-                    let lhs = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
+                    let rhs = stack.pop().ok_or(RuntimeError::UnderRead(ptr))?;
+                    let lhs = stack.pop().ok_or(RuntimeError::UnderRead(ptr))?;
                     stack.push(lhs % rhs);
                     stack.push(lhs / rhs);
                 }
+                Opp::Pos => {
+                    stack.push(ptr);
+                },
             },
         }
 
-        idx += 1;
+        ptr += 1;
 
         // Only bother with token limit if it is passed in
         if let Some(limit) = token_limit {
             tokens_consumed += 1;
             if limit < tokens_consumed {
-                return Err(RuntimeError::TokenLimitHit);
+                return Err(RuntimeError::TokenLimitHit(ptr));
             }
         }
 
         if let Some(limit) = stack_limit
             && limit < stack.len()
         {
-            return Err(RuntimeError::StackLimitHit);
+            return Err(RuntimeError::StackLimitHit(ptr));
         }
 
-        if idx == tokens.len() as i64 {
+        if ptr == tokens.len() as i64 {
             break;
-        } else if idx > tokens.len() as i64 {
+        } else if ptr > tokens.len() as i64 {
             return Err(RuntimeError::AfterProgramRead);
         }
     }
@@ -178,12 +173,13 @@ pub fn run(
 }
 
 #[derive(Debug, PartialEq, Eq)]
+// Token values are 0 indexed
 pub enum RuntimeError {
     UnderRead(i64),
     BreforeProgramRead,
     AfterProgramRead,
-    TokenLimitHit,
-    StackLimitHit,
+    TokenLimitHit(i64),
+    StackLimitHit(i64),
     NoOut,
     NoTokens,
 }
@@ -192,7 +188,7 @@ impl Display for RuntimeError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         let e = match self {
             RuntimeError::UnderRead(t) => {
-                format!("Attempted to read from the stack when it is empty, at token {t}")
+                format!("Attempted to read from the stack when it is empty, occured at token {t}",)
             }
             RuntimeError::BreforeProgramRead => {
                 "Moved the execution pointer before the start of the program".to_owned()
@@ -200,8 +196,12 @@ impl Display for RuntimeError {
             RuntimeError::AfterProgramRead => {
                 "Moved the execution pointer past the end of the program".to_owned()
             }
-            RuntimeError::TokenLimitHit => "Exceeded the given token limit".to_owned(),
-            RuntimeError::StackLimitHit => "Exceeded the given stack size limit".to_owned(),
+            RuntimeError::TokenLimitHit(t) => {
+                format!("Exceeded the given token limit, occured at token {t}",)
+            }
+            RuntimeError::StackLimitHit(t) => {
+                format!("Exceeded the given stack size limit, occured at token {t}",)
+            }
             RuntimeError::NoOut => "Exited without a value on the stack to return".to_owned(),
             RuntimeError::NoTokens => "There are no tokens in the input".to_owned(),
         };
@@ -213,7 +213,7 @@ impl Error for RuntimeError {}
 
 #[derive(Debug, Clone, Copy, Hash)]
 pub enum Token {
-    Num(i32),
+    Num(i64),
     Opp(Opp),
 }
 
@@ -221,7 +221,7 @@ impl FromStr for Token {
     type Err = ();
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Ok(num) = s.parse::<i32>() {
+        if let Ok(num) = s.parse::<i64>() {
             Ok(Self::Num(num))
         } else if let Ok(op) = s.parse::<Opp>() {
             Ok(Self::Opp(op))
@@ -243,6 +243,7 @@ pub enum Opp {
     Drop,
     Hop,
     Div,
+    Pos,
 }
 
 impl FromStr for Opp {
@@ -259,6 +260,7 @@ impl FromStr for Opp {
             "drop" => Ok(Opp::Drop),
             "hop" => Ok(Opp::Hop),
             "div" => Ok(Opp::Div),
+            "pos" => Ok(Opp::Pos),
             _ => Err(()),
         }
     }
@@ -276,6 +278,7 @@ impl Display for Opp {
             Opp::Drop => "drop",
             Opp::Hop => "hop",
             Opp::Div => "div",
+            Opp::Pos => "pos",
         };
         write!(f, "{t}")
     }
