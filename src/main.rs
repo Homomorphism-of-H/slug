@@ -9,7 +9,7 @@ use std::{
 use clap::Parser;
 
 #[derive(Debug, Parser)]
-#[command(version, about, long_about = None)]
+#[command(version, about, long_about = None, name = "ass")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Subcommand,
@@ -21,7 +21,6 @@ pub enum Subcommand {
         #[arg(short, long)]
         file: String,
     },
-    Repl,
 }
 
 fn main() -> io::Result<()> {
@@ -32,7 +31,9 @@ fn main() -> io::Result<()> {
             match File::open(&file) {
                 Ok(mut data) if PathBuf::from(file).is_file() => {
                     let mut buf = String::new();
+
                     data.read_to_string(&mut buf)?;
+
                     let tokens: Vec<Token> = buf
                         .split_ascii_whitespace()
                         .enumerate()
@@ -45,11 +46,12 @@ fn main() -> io::Result<()> {
 
                     println!("{:?}", run(tokens));
                 }
+
                 Err(err) => eprintln!("Unable to open file due to with reason: {err}"),
+
                 _ => eprintln!("Is that a file?"),
             };
         }
-        Subcommand::Repl => todo!(),
     }
 
     Ok(())
@@ -61,38 +63,45 @@ pub fn run(tokens: impl IntoIterator<Item = Token>) -> Result<i32, RuntimeError>
     for (idx, token) in tokens.into_iter().enumerate() {
         match token {
             Token::Num(i) => stack.push(i),
+
             Token::Opp(opp) => match opp {
                 Opp::Add => {
                     let a1 = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
                     let a2 = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
                     stack.push(a1 + a2);
                 }
+
                 Opp::Sub => {
                     let a1 = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
                     let a2 = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
                     stack.push(a2 - a1);
                 }
+
                 Opp::Mul => {
                     let a1 = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
                     let a2 = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
                     stack.push(a1 * a2);
                 }
+
                 Opp::Dump => {
                     for (ptr, v) in stack.iter().enumerate() {
                         println!("{ptr} | {v}")
                     }
                 }
+
                 Opp::Top => {
                     let a = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
                     println!("Top: {a}");
                     stack.push(a);
                 }
+
                 Opp::Swap => {
                     let a1 = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
                     let a2 = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
                     stack.push(a1);
                     stack.push(a2);
                 }
+
             },
         }
     }
