@@ -1,4 +1,5 @@
 use std::{
+    error::Error,
     fmt::{self, Display, Formatter},
     fs::File,
     io::{self, Read},
@@ -9,7 +10,7 @@ use std::{
 use clap::Parser;
 
 #[derive(Debug, Parser)]
-#[command(version, about, long_about = None, name = "ass")]
+#[command(version, about, long_about = None)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Subcommand,
@@ -17,9 +18,16 @@ pub struct Cli {
 
 #[derive(Debug, Parser)]
 pub enum Subcommand {
+    /// Run a file.
     Run {
-        #[arg(short, long)]
+        /// File to take as input to run.
         file: String,
+        /// Maximimum number of tokens executed, useful to debug infinite recursion.
+        #[arg(short, long)]
+        token_limit: Option<usize>,
+        /// Maximum size of the stack.
+        #[arg(short, long)]
+        stack_limit: Option<usize>,
     },
 }
 
@@ -27,7 +35,11 @@ fn main() -> io::Result<()> {
     let args = Cli::parse();
 
     match args.command {
-        Subcommand::Run { file } => {
+        Subcommand::Run {
+            file,
+            token_limit,
+            stack_limit,
+        } => {
             match File::open(&file) {
                 Ok(mut data) if PathBuf::from(file).is_file() => {
                     let mut buf = String::new();
@@ -44,10 +56,14 @@ fn main() -> io::Result<()> {
                         })
                         .collect();
 
-                    println!("{:?}", run(tokens));
+                    let output = run(tokens, token_limit, stack_limit);
+                    match output {
+                        Ok(res) => println!("{res}"),
+                        Err(err) => eprintln!("{err}"),
+                    }
                 }
 
-                Err(err) => eprintln!("Unable to open file due to with reason: {err}"),
+                Err(err) => eprintln!("Unable to open file with reason: {err}"),
 
                 _ => eprintln!("Is that a file?"),
             };
@@ -57,15 +73,25 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-pub fn run(tokens: Vec<Token>) -> Result<i32, RuntimeError> {
+/// Executes a stream of input tokens.
+pub fn run(
+    tokens: Vec<Token>,
+    token_limit: Option<usize>,
+    stack_limit: Option<usize>,
+) -> Result<i32, RuntimeError> {
+    if tokens.is_empty() {
+        return Err(RuntimeError::NoTokens);
+    }
     let mut stack: Vec<i32> = Vec::new();
 
     let mut idx = 0i64;
+    let mut tokens_consumed = 0;
 
     loop {
         if idx < 0 {
-            return Err(RuntimeError::BreforeProgramRead)
+            return Err(RuntimeError::BreforeProgramRead);
         }
+
         match tokens[idx as usize] {
             Token::Num(i) => stack.push(i),
 
@@ -124,23 +150,66 @@ pub fn run(tokens: Vec<Token>) -> Result<i32, RuntimeError> {
                 }
             },
         }
+
         idx += 1;
-        if idx >= tokens.len() as i64 {
-            break
+
+        // Only bother with token limit if it is passed in
+        if let Some(limit) = token_limit {
+            tokens_consumed += 1;
+            if limit < tokens_consumed {
+                return Err(RuntimeError::TokenLimitHit);
+            }
+        }
+
+        if let Some(limit) = stack_limit
+            && limit < stack.len()
+        {
+            return Err(RuntimeError::StackLimitHit);
+        }
+
+        if idx == tokens.len() as i64 {
+            break;
+        } else if idx > tokens.len() as i64 {
+            return Err(RuntimeError::AfterProgramRead);
         }
     }
 
     stack.pop().ok_or(RuntimeError::NoOut)
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum RuntimeError {
-    StackOverfill,
     UnderRead(i64),
     BreforeProgramRead,
     AfterProgramRead,
+    TokenLimitHit,
+    StackLimitHit,
     NoOut,
+    NoTokens,
 }
+
+impl Display for RuntimeError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let e = match self {
+            RuntimeError::UnderRead(t) => {
+                format!("Attempted to read from the stack when it is empty, at token {t}")
+            }
+            RuntimeError::BreforeProgramRead => {
+                "Moved the execution pointer before the start of the program".to_owned()
+            }
+            RuntimeError::AfterProgramRead => {
+                "Moved the execution pointer past the end of the program".to_owned()
+            }
+            RuntimeError::TokenLimitHit => "Exceeded the given token limit".to_owned(),
+            RuntimeError::StackLimitHit => "Exceeded the given stack size limit".to_owned(),
+            RuntimeError::NoOut => "Exited without a value on the stack to return".to_owned(),
+            RuntimeError::NoTokens => "There are no tokens in the input".to_owned(),
+        };
+        write!(f, "{e}")
+    }
+}
+
+impl Error for RuntimeError {}
 
 #[derive(Debug, Clone, Copy, Hash)]
 pub enum Token {
