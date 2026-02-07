@@ -60,59 +60,76 @@ fn main() -> io::Result<()> {
 pub fn run(tokens: impl IntoIterator<Item = Token>) -> Result<i32, RuntimeError> {
     let mut stack: Vec<i32> = Vec::new();
 
+    let mut hop_dist: i32 = 0;
+
     for (idx, token) in tokens.into_iter().enumerate() {
-        match token {
-            Token::Num(i) => stack.push(i),
+        if hop_dist <= 0 {
+            hop_dist = 0;
+            match token {
+                Token::Num(i) => stack.push(i),
 
-            Token::Opp(opp) => match opp {
-                Opp::Add => {
-                    let a1 = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
-                    let a2 = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
-                    stack.push(a1 + a2);
-                }
-
-                Opp::Sub => {
-                    let a1 = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
-                    let a2 = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
-                    stack.push(a2 - a1);
-                }
-
-                Opp::Mul => {
-                    let a1 = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
-                    let a2 = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
-                    stack.push(a1 * a2);
-                }
-
-                Opp::Dump => {
-                    for (ptr, v) in stack.iter().enumerate() {
-                        println!("{ptr} | {v}")
+                Token::Opp(opp) => match opp {
+                    Opp::Add => {
+                        let rhs = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
+                        let lhs = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
+                        stack.push(lhs + rhs);
                     }
-                }
 
-                Opp::Top => {
-                    let a = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
-                    println!("Top: {a}");
-                    stack.push(a);
-                }
+                    Opp::Sub => {
+                        let rhs = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
+                        let lhs = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
+                        stack.push(lhs - rhs);
+                    }
 
-                Opp::Swap => {
-                    let a1 = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
-                    let a2 = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
-                    stack.push(a1);
-                    stack.push(a2);
-                }
+                    Opp::Mul => {
+                        let a1 = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
+                        let a2 = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
+                        stack.push(a1 * a2);
+                    }
 
-            },
+                    Opp::Dump => {
+                        for (ptr, v) in stack.iter().enumerate() {
+                            println!("{ptr} | {v}")
+                        }
+                    }
+
+                    Opp::Top => {
+                        let a = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
+                        println!("Top: {a}");
+                        stack.push(a);
+                    }
+
+                    Opp::Swap => {
+                        let a1 = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
+                        let a2 = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
+                        stack.push(a1);
+                        stack.push(a2);
+                    }
+
+                    Opp::Drop => {
+                        stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
+                    }
+
+                    Opp::Hop => {
+                        let d = stack.pop().ok_or(RuntimeError::UnderRead(idx))?;
+                        hop_dist += d;
+                    }
+                },
+            }
+        } else {
+            hop_dist -= 1;
         }
     }
 
-    stack.pop().ok_or(RuntimeError::UnderRead(usize::MAX))
+    stack.pop().ok_or(RuntimeError::NoOut)
 }
 
 #[derive(Debug)]
 pub enum RuntimeError {
     StackOverfill,
     UnderRead(usize),
+    PrematureEndOfProgram,
+    NoOut,
 }
 
 #[derive(Debug)]
@@ -144,6 +161,8 @@ pub enum Opp {
     Dump,
     Top,
     Swap,
+    Drop,
+    Hop,
 }
 
 impl FromStr for Opp {
@@ -157,6 +176,8 @@ impl FromStr for Opp {
             "dump" => Ok(Opp::Dump),
             "top" => Ok(Opp::Top),
             "swap" => Ok(Opp::Swap),
+            "drop" => Ok(Opp::Drop),
+            "hop" => Ok(Opp::Hop),
             _ => Err(()),
         }
     }
@@ -171,6 +192,8 @@ impl Display for Opp {
             Opp::Dump => "dump",
             Opp::Top => "top",
             Opp::Swap => "swap",
+            Opp::Drop => "drop",
+            Opp::Hop => "hop",
         };
         write!(f, "{t}")
     }
