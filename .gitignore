@@ -1,5 +1,9 @@
 /target
+
 /.direnv
 .envrc
 
 /test
+
+Cargo.lock
+flake.lock
