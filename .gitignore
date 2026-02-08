@@ -5,5 +5,4 @@
 
 /test
 
-Cargo.lock
-flake.lock
+*.lock

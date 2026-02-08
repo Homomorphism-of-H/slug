@@ -16,12 +16,8 @@
           cargoToml = builtins.fromTOML (builtins.readFile ./Cargo.toml);
 
           runtimeDeps = with pkgs; [
-            libxkbcommon
-            qtcreator
-            wayland
           ];
           buildDeps = with pkgs; [
-            wayland
             pkg-config
             rustPlatform.bindgenHook
           ];
