@@ -2,7 +2,7 @@ use std::{
     error::Error,
     fmt::{self, Display, Formatter},
     fs::File,
-    io::{self, ErrorKind, Read, Write},
+    io::{self, BufRead, ErrorKind, Read, Write, stdin},
     str::FromStr,
 };
 
@@ -38,6 +38,7 @@ pub enum Subcommand {
         #[arg(long)]
         out: Option<String>,
     },
+    Repl,
 }
 
 fn main() -> io::Result<()> {
@@ -55,7 +56,7 @@ fn main() -> io::Result<()> {
                     let mut buf = String::new();
                     data.read_to_string(&mut buf)?;
 
-                    let tokens = parse_text(buf).unwrap();
+                    let tokens = Tokenizer::parse_text(buf).unwrap();
 
                     let mut runtime = Slug {
                         stack: Vec::new(),
@@ -90,7 +91,7 @@ fn main() -> io::Result<()> {
 
                 data.read_to_string(&mut buf)?;
 
-                let tokens = parse_text(buf).unwrap();
+                let tokens = Tokenizer::parse_text(buf).unwrap();
 
                 drop(data);
 
@@ -136,27 +137,32 @@ fn main() -> io::Result<()> {
 
             Err(err) => return Err(err),
         },
+        Subcommand::Repl => {
+            let mut input = stdin().lock();
+            let mut runtime = Slug::new();
+            loop {
+                let mut buf = String::new();
+                let out = match input.read_line(&mut buf) {
+                    Ok(0) => {
+                        let toks = Tokenizer::parse_text(buf).unwrap();
+                        runtime.eof = true;
+                        runtime.execute_tokens(toks).unwrap()
+                    }
+                    Ok(_) => {
+                        let toks = Tokenizer::parse_text(buf).unwrap();
+                        runtime.execute_tokens(toks).unwrap()
+                    }
+                    Err(e) => return Err(e),
+                };
+                if let Some(val) = out {
+                    println!("{val}");
+                    break;
+                }
+            }
+        }
     }
 
     Ok(())
-}
-
-pub fn parse_text(text: String) -> Result<Vec<Token>, ParseTextError> {
-    let tokens: Vec<(usize, Result<Token, ()>)> = text
-        .split_ascii_whitespace()
-        .enumerate()
-        .map(|(idx, word)| (idx, word.parse::<Token>()))
-        .collect();
-
-    if tokens.iter().all(|(_, tok)| Result::is_ok(tok)) {
-        Ok(tokens.iter().map(|(_, tok)| tok.unwrap()).collect())
-    } else {
-        if let Some((idx, _)) = tokens.iter().find(|(_, tok)| tok.is_err()) {
-            Err(ParseTextError { idx: *idx })
-        } else {
-            unreachable!();
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -251,6 +257,7 @@ pub enum Opp {
     Div,
     /// Push the position of the pointer onto the stack
     Pos,
+    Exit,
 }
 
 impl FromStr for Opp {
@@ -268,6 +275,7 @@ impl FromStr for Opp {
             "hop" => Ok(Opp::Hop),
             "div" => Ok(Opp::Div),
             "pos" => Ok(Opp::Pos),
+            "exit" => Ok(Opp::Exit),
             _ => Err(()),
         }
     }
@@ -286,6 +294,7 @@ impl Display for Opp {
             Opp::Hop => "hop",
             Opp::Div => "div",
             Opp::Pos => "pos",
+            Opp::Exit => "exit",
         };
         write!(f, "{t}")
     }
@@ -293,7 +302,25 @@ impl Display for Opp {
 
 pub struct Tokenizer {}
 
-impl Tokenizer {}
+impl Tokenizer {
+    pub fn parse_text(text: String) -> Result<Vec<Token>, ParseTextError> {
+        let tokens: Vec<(usize, Result<Token, ()>)> = text
+            .split_ascii_whitespace()
+            .enumerate()
+            .map(|(idx, word)| (idx, word.parse::<Token>()))
+            .collect();
+
+        if tokens.iter().all(|(_, tok)| Result::is_ok(tok)) {
+            Ok(tokens.iter().map(|(_, tok)| tok.unwrap()).collect())
+        } else {
+            if let Some((idx, _)) = tokens.iter().find(|(_, tok)| tok.is_err()) {
+                Err(ParseTextError { idx: *idx })
+            } else {
+                unreachable!();
+            }
+        }
+    }
+}
 
 pub struct Slug {
     pub stack: Vec<i64>,
@@ -389,6 +416,7 @@ impl Slug {
                     Opp::Pos => {
                         self.stack.push(self.ptr);
                     }
+                    Opp::Exit => return self.exit().map(Some),
                 },
             }
 
