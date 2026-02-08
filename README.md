@@ -1,1 +1,1 @@
-A toy language implemented in rust
+A toy language implemented in rust. It's stack based and pretty darn ugly, I hate it and so should you.

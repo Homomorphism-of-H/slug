@@ -38,6 +38,7 @@ pub enum Subcommand {
         #[arg(long)]
         out: Option<String>,
     },
+    /// Creates a Repl to test out the syntax and the control flow.
     Repl,
 }
 
@@ -245,6 +246,7 @@ pub enum Opp {
     Add,
     Sub,
     Mul,
+    Div,
     /// Dump the stack into the output
     Dump,
     /// Prints the topmost value on the stack
@@ -253,10 +255,11 @@ pub enum Opp {
     Swap,
     /// Drops the top value from the stack
     Drop,
+    /// Hops some amount of tokens fowards or backwards
     Hop,
-    Div,
     /// Push the position of the pointer onto the stack
     Pos,
+    /// Exits the program.
     Exit,
 }
 
@@ -303,6 +306,7 @@ impl Display for Opp {
 pub struct Tokenizer {}
 
 impl Tokenizer {
+    /// Tokenizes some text
     pub fn parse_text(text: String) -> Result<Vec<Token>, ParseTextError> {
         let tokens: Vec<(usize, Result<Token, ()>)> = text
             .split_ascii_whitespace()
@@ -322,13 +326,16 @@ impl Tokenizer {
     }
 }
 
+/// A Slug runtime
 pub struct Slug {
     pub stack: Vec<i64>,
     pub stack_limit: Option<usize>,
     pub tokens: Vec<Token>,
+    /// Pointer to position in execution
     pub ptr: i64,
     pub token_limit: Option<usize>,
     pub tokens_consumed: usize,
+    /// Whether or not there is more potential input to be considered
     pub eof: bool,
 }
 
