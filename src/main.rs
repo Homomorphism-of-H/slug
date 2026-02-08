@@ -1,9 +1,9 @@
+#[cfg(target_os = "linux")]
 use std::{
     error::Error,
     fmt::{self, Display, Formatter},
     fs::File,
-    io::{self, Read},
-    path::PathBuf,
+    io::{self, ErrorKind, Read, Write},
     str::FromStr,
 };
 
@@ -29,6 +29,14 @@ pub enum Subcommand {
         #[arg(short, long)]
         stack_limit: Option<usize>,
     },
+    /// Formats a file.
+    Fmt {
+        file: String,
+        #[arg(short, long)]
+        new_lines: Option<bool>,
+        #[arg(long)]
+        out: Option<String>,
+    },
 }
 
 fn main() -> io::Result<()> {
@@ -41,20 +49,13 @@ fn main() -> io::Result<()> {
             stack_limit,
         } => {
             match File::open(&file) {
-                Ok(mut data) if PathBuf::from(file).is_file() => {
+                Ok(mut data) => {
+                    println!("Running {file}");
                     let mut buf = String::new();
 
                     data.read_to_string(&mut buf)?;
 
-                    let tokens: Vec<Token> = buf
-                        .split_ascii_whitespace()
-                        .enumerate()
-                        .map(|(idx, word)| {
-                            word.parse::<Token>().unwrap_or_else(|_| {
-                                panic!("Non parseable input file, issue at token {idx}")
-                            })
-                        })
-                        .collect();
+                    let tokens = parse_text(buf);
 
                     let output = run(tokens, token_limit, stack_limit);
                     match output {
@@ -63,14 +64,84 @@ fn main() -> io::Result<()> {
                     }
                 }
 
-                Err(err) => eprintln!("Unable to open file with reason: {err}"),
-
-                _ => eprintln!("Is that a file?"),
+                Err(err) => return Err(err),
             };
         }
+        Subcommand::Fmt {
+            file,
+            new_lines,
+            out,
+        } => match File::options().write(true).read(true).open(&file) {
+            Ok(mut data) => {
+                println!("Formatting {file}");
+                let mut buf = String::new();
+
+                data.read_to_string(&mut buf)?;
+
+                let tokens = parse_text(buf);
+
+                drop(data);
+
+                let mut out = match out {
+                    Some(path) => match File::options()
+                        .write(true)
+                        .read(true)
+                        .truncate(true)
+                        .open(&path)
+                    {
+                        Ok(o) => o,
+                        Err(err) => {
+                            if err.kind() == ErrorKind::NotFound {
+                                File::create_new(path)?
+                            } else {
+                                panic!("Unable to open file with reason: {err}")
+                            }
+                        }
+                    },
+                    None => match File::options()
+                        .write(true)
+                        .read(true)
+                        .truncate(true)
+                        .open(&file)
+                    {
+                        Ok(o) => o,
+                        Err(err) => panic!("Unable to open file with reason: {err}"),
+                    },
+                };
+
+                out.lock()?;
+
+                let whitespace = if new_lines.unwrap_or(true) { "\n" } else { " " };
+
+                let mut text = String::new();
+                for token in tokens {
+                    text += &format!("{token}").to_string();
+                    text += whitespace;
+                }
+
+                out.write_all(text.as_bytes())?;
+            }
+
+            Err(err) => return Err(err),
+        },
     }
 
     Ok(())
+}
+
+pub fn parse_text(text: String) -> Vec<Token> {
+    text.split_ascii_whitespace()
+        .enumerate()
+        .map(|(idx, word)| {
+            word.parse::<Token>()
+                .unwrap_or_else(|_| panic!("Non parseable input file, issue at token {idx}"))
+        })
+        .collect()
+}
+
+#[derive(Debug)]
+pub struct ParseTextError {
+    pub token_id: usize,
 }
 
 /// Executes a stream of input tokens.
@@ -142,7 +213,7 @@ pub fn run(
                 }
                 Opp::Pos => {
                     stack.push(ptr);
-                },
+                }
             },
         }
 
@@ -231,18 +302,33 @@ impl FromStr for Token {
     }
 }
 
+impl Display for Token {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        let t = match self {
+            Token::Num(i) => format!("{i}"),
+            Token::Opp(i) => format!("{i}"),
+        };
+        write!(f, "{t}")
+    }
+}
+
 #[derive(Debug, Clone, Copy, Hash)]
 #[repr(u8)]
 pub enum Opp {
     Add,
     Sub,
     Mul,
+    /// Dump the stack into the output
     Dump,
+    /// Prints the topmost value on the stack
     Top,
+    /// Swaps the top two values on the stack
     Swap,
+    /// Drops the top value from the stack
     Drop,
     Hop,
     Div,
+    /// Push the position of the pointer onto the stack
     Pos,
 }
 
