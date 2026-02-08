@@ -1,4 +1,3 @@
-#[cfg(target_os = "linux")]
 use std::{
     error::Error,
     fmt::{self, Display, Formatter},
@@ -31,9 +30,11 @@ pub enum Subcommand {
     },
     /// Formats a file.
     Fmt {
+        /// File to format
         file: String,
         #[arg(short, long)]
         new_lines: Option<bool>,
+        /// Output file of formatting, defaults to the input file.
         #[arg(long)]
         out: Option<String>,
     },
@@ -52,15 +53,26 @@ fn main() -> io::Result<()> {
                 Ok(mut data) => {
                     println!("Running {file}");
                     let mut buf = String::new();
-
                     data.read_to_string(&mut buf)?;
 
-                    let tokens = parse_text(buf);
+                    let tokens = parse_text(buf).unwrap();
 
-                    let output = run(tokens, token_limit, stack_limit);
+                    let mut runtime = Slug {
+                        stack: Vec::new(),
+                        stack_limit,
+                        tokens,
+                        ptr: 0,
+                        token_limit,
+                        tokens_consumed: 0,
+                        eof: true,
+                    };
+
+                    let output = runtime.execute();
+
                     match output {
-                        Ok(res) => println!("{res}"),
-                        Err(err) => eprintln!("{err}"),
+                        Ok(Some(res)) => println!("{res}"),
+                        Err(err) => eprintln!("Error: {err}"),
+                        _ => unreachable!(),
                     }
                 }
 
@@ -78,7 +90,7 @@ fn main() -> io::Result<()> {
 
                 data.read_to_string(&mut buf)?;
 
-                let tokens = parse_text(buf);
+                let tokens = parse_text(buf).unwrap();
 
                 drop(data);
 
@@ -129,19 +141,27 @@ fn main() -> io::Result<()> {
     Ok(())
 }
 
-pub fn parse_text(text: String) -> Vec<Token> {
-    text.split_ascii_whitespace()
+pub fn parse_text(text: String) -> Result<Vec<Token>, ParseTextError> {
+    let tokens: Vec<(usize, Result<Token, ()>)> = text
+        .split_ascii_whitespace()
         .enumerate()
-        .map(|(idx, word)| {
-            word.parse::<Token>()
-                .unwrap_or_else(|_| panic!("Non parseable input file, issue at token {idx}"))
-        })
-        .collect()
+        .map(|(idx, word)| (idx, word.parse::<Token>()))
+        .collect();
+
+    if tokens.iter().all(|(_, tok)| Result::is_ok(tok)) {
+        Ok(tokens.iter().map(|(_, tok)| tok.unwrap()).collect())
+    } else {
+        if let Some((idx, _)) = tokens.iter().find(|(_, tok)| tok.is_err()) {
+            Err(ParseTextError { idx: *idx })
+        } else {
+            unreachable!();
+        }
+    }
 }
 
 #[derive(Debug)]
 pub struct ParseTextError {
-    pub token_id: usize,
+    pub idx: usize,
 }
 
 /// Executes a stream of input tokens.
@@ -367,5 +387,149 @@ impl Display for Opp {
             Opp::Pos => "pos",
         };
         write!(f, "{t}")
+    }
+}
+
+pub struct Tokenizer {}
+
+impl Tokenizer {}
+
+pub struct Slug {
+    pub stack: Vec<i64>,
+    pub stack_limit: Option<usize>,
+    pub tokens: Vec<Token>,
+    pub ptr: i64,
+    pub token_limit: Option<usize>,
+    pub tokens_consumed: usize,
+    pub eof: bool,
+}
+
+impl Slug {
+    pub fn new() -> Self {
+        Self {
+            stack: Vec::new(),
+            tokens: Vec::new(),
+            ptr: 0,
+            stack_limit: None,
+            token_limit: None,
+            tokens_consumed: 0,
+            eof: false,
+        }
+    }
+
+    pub fn execute_tokens(&mut self, toks: Vec<Token>) -> Result<Option<i64>, RuntimeError> {
+        self.tokens.extend(toks);
+        self.execute()
+    }
+
+    pub fn execute_token(&mut self, token: Token) -> Result<Option<i64>, RuntimeError> {
+        self.tokens.push(token);
+        self.execute()
+    }
+
+    pub fn execute(&mut self) -> Result<Option<i64>, RuntimeError> {
+        if self.tokens.is_empty() && self.eof {
+            return Err(RuntimeError::NoTokens);
+        }
+
+        loop {
+            if self.ptr < 0 {
+                return Err(RuntimeError::BreforeProgramRead);
+            }
+
+            match self.tokens[self.ptr as usize] {
+                Token::Num(i) => self.stack.push(i),
+
+                Token::Opp(opp) => match opp {
+                    Opp::Add => {
+                        let rhs = self.stack.pop().ok_or(RuntimeError::UnderRead(self.ptr))?;
+                        let lhs = self.stack.pop().ok_or(RuntimeError::UnderRead(self.ptr))?;
+                        self.stack.push(lhs + rhs);
+                    }
+                    Opp::Sub => {
+                        let rhs = self.stack.pop().ok_or(RuntimeError::UnderRead(self.ptr))?;
+                        let lhs = self.stack.pop().ok_or(RuntimeError::UnderRead(self.ptr))?;
+                        self.stack.push(lhs - rhs);
+                    }
+                    Opp::Mul => {
+                        let a1 = self.stack.pop().ok_or(RuntimeError::UnderRead(self.ptr))?;
+                        let a2 = self.stack.pop().ok_or(RuntimeError::UnderRead(self.ptr))?;
+                        self.stack.push(a1 * a2);
+                    }
+                    Opp::Dump => {
+                        for (ptr, v) in self.stack.iter().enumerate() {
+                            println!("{ptr} | {v}")
+                        }
+                    }
+                    Opp::Top => {
+                        let a = self.stack.pop().ok_or(RuntimeError::UnderRead(self.ptr))?;
+                        println!("Top: {a}");
+                        self.stack.push(a);
+                    }
+                    Opp::Swap => {
+                        let a1 = self.stack.pop().ok_or(RuntimeError::UnderRead(self.ptr))?;
+                        let a2 = self.stack.pop().ok_or(RuntimeError::UnderRead(self.ptr))?;
+                        self.stack.push(a1);
+                        self.stack.push(a2);
+                    }
+                    Opp::Drop => {
+                        self.stack.pop().ok_or(RuntimeError::UnderRead(self.ptr))?;
+                    }
+                    Opp::Hop => {
+                        let d = self.stack.pop().ok_or(RuntimeError::UnderRead(self.ptr))?;
+                        self.ptr += d;
+                    }
+                    Opp::Div => {
+                        let rhs = self.stack.pop().ok_or(RuntimeError::UnderRead(self.ptr))?;
+                        let lhs = self.stack.pop().ok_or(RuntimeError::UnderRead(self.ptr))?;
+                        self.stack.push(lhs % rhs);
+                        self.stack.push(lhs / rhs);
+                    }
+                    Opp::Pos => {
+                        self.stack.push(self.ptr);
+                    }
+                },
+            }
+
+            self.ptr += 1;
+            self.tokens_consumed += 1;
+
+            // Only bother with token limit if it exists
+            if let Some(limit) = self.token_limit
+                && limit < self.tokens_consumed
+            {
+                return Err(RuntimeError::TokenLimitHit(self.ptr));
+            }
+
+            if let Some(limit) = self.stack_limit
+                && limit < self.stack.len()
+            {
+                return Err(RuntimeError::StackLimitHit(self.ptr));
+            }
+
+            if self.ptr == self.tokens.len() as i64
+                || self.ptr > self.tokens.len() as i64 && !self.eof
+            {
+                break;
+            } else if self.ptr > self.tokens.len() as i64 && self.eof {
+                return Err(RuntimeError::AfterProgramRead);
+            }
+        }
+
+        if self.eof {
+            self.exit().map(Some)
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn exit(&mut self) -> Result<i64, RuntimeError> {
+        self.stack.pop().ok_or(RuntimeError::NoOut)
+    }
+}
+
+impl Default for Slug {
+    fn default() -> Self {
+        Self::new()
     }
 }
