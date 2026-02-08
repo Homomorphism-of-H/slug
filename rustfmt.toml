@@ -1,0 +1,42 @@
+style_edition = "2024"
+
+hard_tabs = false
+
+trailing_comma = "Vertical"
+
+use_field_init_shorthand = true
+
+use_try_shorthand = true
+
+match_block_trailing_comma = true
+
+wrap_comments = true
+normalize_comments = true
+
+reorder_imports = true
+imports_indent = "Block"
+imports_layout = "Vertical"
+imports_granularity = "Module"
+group_imports = "StdExternalCrate"
+
+binop_separator = "Front"
+
+reorder_impl_items = true
+
+blank_lines_lower_bound = 0
+blank_lines_upper_bound = 1
+
+empty_item_single_line = true
+
+enum_discrim_align_threshold = 20
+struct_field_align_threshold = 20
+
+fn_single_line = false
+
+space_after_colon = true
+space_before_colon = true
+spaces_around_ranges = true
+
+force_multiline_blocks = true
+
+struct_lit_single_line = false
