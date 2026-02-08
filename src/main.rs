@@ -42,6 +42,7 @@ pub enum Subcommand {
     Fmt {
         /// File to format
         file :      String,
+        /// Whether to pad with newlines or spaces
         #[arg(short, long)]
         new_lines : Option<bool>,
         /// Output file of formatting, defaults to the input file.
@@ -136,8 +137,10 @@ fn main() -> io::Result<()> {
 /// Formats a file with optional parameters
 ///
 /// # Errors
+/// Errors if the inputed file path can't be read.
 ///
 /// # Panics
+/// Panics if the inputed file can't be parsed.
 pub fn format(file : &str, new_lines : Option<bool>, out : Option<String>) -> io::Result<()> {
     match File::options().write(true).read(true).open(file) {
         Ok(mut data) => {
@@ -248,7 +251,10 @@ impl FromStr for Token {
     type Err = ();
 
     fn from_str(s : &str) -> Result<Self, Self::Err> {
-        #[expect(clippy::option_if_let_else, reason = "Clippy's 'solution' is much less readable")]
+        #[expect(
+            clippy::option_if_let_else,
+            reason = "Clippy's 'solution' is much less readable"
+        )]
         if let Ok(num) = s.parse::<i64>() {
             Ok(Self::Num(num))
         } else if let Ok(op) = s.parse::<Opp>() {
@@ -275,6 +281,7 @@ pub enum Opp {
     Add,
     Sub,
     Mul,
+    /// Note: Pushes 2 values, the output and the remainder
     Div,
     /// Dump the stack into the output
     Dump,
@@ -368,7 +375,7 @@ pub struct Slug {
     pub stack :           Vec<i64>,
     pub stack_limit :     Option<usize>,
     pub tokens :          Vec<Token>,
-    /// Pointer to position in execution
+    /// Pointer to the position in execution
     pub ptr :             i64,
     pub token_limit :     Option<usize>,
     pub tokens_consumed : usize,
@@ -509,7 +516,7 @@ impl Slug {
 
             #[expect(
                 clippy::cast_possible_wrap,
-                reason = "The chances of someone writing a program with even over a trillon tokens is insanely low that this would never happen in a real enviromen"
+                reason = "The chances of someone writing a program with even over a trillon tokens is so insanely low that this would never happen in a real enviroment"
             )]
             let len = self.tokens.len() as i64;
 
