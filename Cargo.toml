@@ -24,3 +24,6 @@ assertions_on_result_states = "deny"
 bool_to_int_with_if = "warn"
 large_stack_frames = "warn"
 missing_const_for_fn = "deny"
+
+# This lint is not mature enough to be used
+significant_drop_tightening ={ level = "allow", priority = 1}

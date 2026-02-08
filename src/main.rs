@@ -67,7 +67,7 @@ fn main() -> io::Result<()> {
                     let mut buf = String::new();
                     data.read_to_string(&mut buf)?;
 
-                    let tokens = Tokenizer::parse_text(buf).expect("Unable to parse text");
+                    let tokens = Tokenizer::parse_text(&buf).expect("Unable to parse text");
 
                     let mut runtime = Slug {
                         stack : Vec::new(),
@@ -89,70 +89,16 @@ fn main() -> io::Result<()> {
                 },
 
                 Err(err) => return Err(err),
-            };
+            }
         },
         Subcommand::Fmt {
             file,
             new_lines,
             out,
         } => {
-            match File::options().write(true).read(true).open(&file) {
-                Ok(mut data) => {
-                    println!("Formatting {file}");
-                    let mut buf = String::new();
+            println!("Formatting {file}");
 
-                    data.read_to_string(&mut buf)?;
-
-                    let tokens = Tokenizer::parse_text(buf).expect("Unable to parse text");
-
-                    drop(data);
-
-                    let mut out = match out {
-                        Some(path) => {
-                            match File::options()
-                                .write(true)
-                                .read(true)
-                                .truncate(true)
-                                .open(&path)
-                            {
-                                Ok(o) => o,
-                                Err(err) => {
-                                    if err.kind() == ErrorKind::NotFound {
-                                        File::create_new(path)?
-                                    } else {
-                                        panic!("Unable to open file with reason: {err}")
-                                    }
-                                },
-                            }
-                        },
-                        None => {
-                            match File::options()
-                                .write(true)
-                                .read(true)
-                                .truncate(true)
-                                .open(&file)
-                            {
-                                Ok(o) => o,
-                                Err(err) => panic!("Unable to open file with reason: {err}"),
-                            }
-                        },
-                    };
-
-                    out.lock()?;
-
-                    let whitespace = if new_lines.unwrap_or(true) { "\n" } else { " " };
-
-                    let mut text = String::new();
-                    for token in tokens {
-                        text += &format!("{token}").to_string();
-                        text += whitespace;
-                    }
-
-                    out.write_all(text.as_bytes())?;
-                },
-
-                Err(err) => return Err(err),
-            }
+            format(&file, new_lines, out)?;
         },
         Subcommand::Repl => {
             let mut input = stdin().lock();
@@ -161,16 +107,21 @@ fn main() -> io::Result<()> {
                 let mut buf = String::new();
                 let out = match input.read_line(&mut buf) {
                     Ok(0) => {
-                        let toks = Tokenizer::parse_text(buf).expect("Unable to parse text");
+                        let toks = Tokenizer::parse_text(&buf).expect("Unable to parse text");
                         runtime.eof = true;
-                        runtime.execute_tokens(toks).expect("Error during execution")
+                        runtime
+                            .execute_tokens(toks)
+                            .expect("Error during execution")
                     },
                     Ok(_) => {
-                        let toks = Tokenizer::parse_text(buf).expect("Unable to parse text");
-                        runtime.execute_tokens(toks).expect("Error during execution")
+                        let toks = Tokenizer::parse_text(&buf).expect("Unable to parse text");
+                        runtime
+                            .execute_tokens(toks)
+                            .expect("Error during execution")
                     },
                     Err(e) => return Err(e),
                 };
+
                 if let Some(val) = out {
                     println!("{val}");
                     break;
@@ -179,6 +130,67 @@ fn main() -> io::Result<()> {
         },
     }
 
+    Ok(())
+}
+
+/// Formats a file with optional parameters
+///
+/// # Errors
+///
+/// # Panics
+pub fn format(file : &str, new_lines : Option<bool>, out : Option<String>) -> io::Result<()> {
+    match File::options().write(true).read(true).open(file) {
+        Ok(mut data) => {
+            let mut buf = String::new();
+
+            data.read_to_string(&mut buf)?;
+
+            let tokens = Tokenizer::parse_text(&buf).expect("Unable to parse text");
+
+            drop(data);
+
+            let mut out = match out {
+                Some(path) => {
+                    match File::options()
+                        .write(true)
+                        .read(true)
+                        .truncate(true)
+                        .open(&path)
+                    {
+                        Ok(o) => o,
+                        Err(err) => {
+                            if err.kind() == ErrorKind::NotFound {
+                                File::create_new(path)?
+                            } else {
+                                return Err(err);
+                            }
+                        },
+                    }
+                },
+                None => {
+                    File::options()
+                        .write(true)
+                        .read(true)
+                        .truncate(true)
+                        .open(file)?
+                },
+            };
+
+            out.lock()?;
+
+            let whitespace = if new_lines.unwrap_or(true) { "\n" } else { " " };
+
+            let mut text = String::new();
+            for token in tokens {
+                text += &format!("{token}").to_string();
+                text += whitespace;
+            }
+
+            out.write_all(text.as_bytes())?;
+        },
+
+        Err(err) => return Err(err),
+    }
     Ok(())
 }
 
@@ -202,23 +214,23 @@ pub enum RuntimeError {
 impl Display for RuntimeError {
     fn fmt(&self, f : &mut Formatter<'_>) -> fmt::Result {
         let e = match self {
-            RuntimeError::UnderRead(t) => {
+            Self::UnderRead(t) => {
                 format!("Attempted to read from the stack when it is empty, occured at token {t}",)
             },
-            RuntimeError::BreforeProgramRead => {
+            Self::BreforeProgramRead => {
                 "Moved the execution pointer before the start of the program".to_owned()
             },
-            RuntimeError::AfterProgramRead => {
+            Self::AfterProgramRead => {
                 "Moved the execution pointer past the end of the program".to_owned()
             },
-            RuntimeError::TokenLimitHit(t) => {
+            Self::TokenLimitHit(t) => {
                 format!("Exceeded the given token limit, occured at token {t}",)
             },
-            RuntimeError::StackLimitHit(t) => {
+            Self::StackLimitHit(t) => {
                 format!("Exceeded the given stack size limit, occured at token {t}",)
             },
-            RuntimeError::NoOut => "Exited without a value on the stack to return".to_owned(),
-            RuntimeError::NoTokens => "There are no tokens in the input".to_owned(),
+            Self::NoOut => "Exited without a value on the stack to return".to_owned(),
+            Self::NoTokens => "There are no tokens in the input".to_owned(),
         };
         write!(f, "{e}")
     }
@@ -236,6 +248,7 @@ impl FromStr for Token {
     type Err = ();
 
     fn from_str(s : &str) -> Result<Self, Self::Err> {
+        #[expect(clippy::option_if_let_else, reason = "Clippy's 'solution' is much less readable")]
         if let Ok(num) = s.parse::<i64>() {
             Ok(Self::Num(num))
         } else if let Ok(op) = s.parse::<Opp>() {
@@ -249,8 +262,8 @@ impl FromStr for Token {
 impl Display for Token {
     fn fmt(&self, f : &mut Formatter<'_>) -> fmt::Result {
         let t = match self {
-            Token::Num(i) => format!("{i}"),
-            Token::Opp(i) => format!("{i}"),
+            Self::Num(i) => format!("{i}"),
+            Self::Opp(i) => format!("{i}"),
         };
         write!(f, "{t}")
     }
@@ -284,17 +297,17 @@ impl FromStr for Opp {
 
     fn from_str(s : &str) -> Result<Self, Self::Err> {
         match s {
-            "add" => Ok(Opp::Add),
-            "sub" => Ok(Opp::Sub),
-            "mul" => Ok(Opp::Mul),
-            "dump" => Ok(Opp::Dump),
-            "top" => Ok(Opp::Top),
-            "swap" => Ok(Opp::Swap),
-            "drop" => Ok(Opp::Drop),
-            "hop" => Ok(Opp::Hop),
-            "div" => Ok(Opp::Div),
-            "pos" => Ok(Opp::Pos),
-            "exit" => Ok(Opp::Exit),
+            "add" => Ok(Self::Add),
+            "sub" => Ok(Self::Sub),
+            "mul" => Ok(Self::Mul),
+            "dump" => Ok(Self::Dump),
+            "top" => Ok(Self::Top),
+            "swap" => Ok(Self::Swap),
+            "drop" => Ok(Self::Drop),
+            "hop" => Ok(Self::Hop),
+            "div" => Ok(Self::Div),
+            "pos" => Ok(Self::Pos),
+            "exit" => Ok(Self::Exit),
             _ => Err(()),
         }
     }
@@ -303,17 +316,17 @@ impl FromStr for Opp {
 impl Display for Opp {
     fn fmt(&self, f : &mut Formatter<'_>) -> fmt::Result {
         let t = match self {
-            Opp::Add => "add",
-            Opp::Sub => "sub",
-            Opp::Mul => "mul",
-            Opp::Dump => "dump",
-            Opp::Top => "top",
-            Opp::Swap => "swap",
-            Opp::Drop => "drop",
-            Opp::Hop => "hop",
-            Opp::Div => "div",
-            Opp::Pos => "pos",
-            Opp::Exit => "exit",
+            Self::Add => "add",
+            Self::Sub => "sub",
+            Self::Mul => "mul",
+            Self::Dump => "dump",
+            Self::Top => "top",
+            Self::Swap => "swap",
+            Self::Drop => "drop",
+            Self::Hop => "hop",
+            Self::Div => "div",
+            Self::Pos => "pos",
+            Self::Exit => "exit",
         };
         write!(f, "{t}")
     }
@@ -323,7 +336,12 @@ pub struct Tokenizer {}
 
 impl Tokenizer {
     /// Tokenizes some text
-    pub fn parse_text(text : String) -> Result<Vec<Token>, ParseTextError> {
+    ///
+    /// # Errors
+    /// If the inputed text is syntaxtically invalis
+    ///
+    /// # Panics
+    pub fn parse_text(text : &str) -> Result<Vec<Token>, ParseTextError> {
         let tokens : Vec<(usize, Result<Token, ()>)> = text
             .split_ascii_whitespace()
             .enumerate()
@@ -331,15 +349,16 @@ impl Tokenizer {
             .collect();
 
         if tokens.iter().all(|(_, tok)| Result::is_ok(tok)) {
-            Ok(tokens.iter().map(|(_, tok)| tok.unwrap()).collect())
+            Ok(tokens
+                .iter()
+                .map(|(_, tok)| tok.expect("Can't happen, the vec has been validated already"))
+                .collect())
+        } else if let Some((idx, _)) = tokens.iter().find(|(_, tok)| tok.is_err()) {
+            Err(ParseTextError {
+                idx : *idx
+            })
         } else {
-            if let Some((idx, _)) = tokens.iter().find(|(_, tok)| tok.is_err()) {
-                Err(ParseTextError {
-                    idx : *idx
-                })
-            } else {
-                unreachable!();
-            }
+            unreachable!();
         }
     }
 }
@@ -358,7 +377,8 @@ pub struct Slug {
 }
 
 impl Slug {
-    pub fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self {
             stack :           Vec::new(),
             tokens :          Vec::new(),
@@ -370,16 +390,32 @@ impl Slug {
         }
     }
 
+    /// Execute a series of inputed tokens.
+    ///
+    /// # Errors
+    ///
+    /// See `Self::execute`
     pub fn execute_tokens(&mut self, toks : Vec<Token>) -> Result<Option<i64>, RuntimeError> {
         self.tokens.extend(toks);
         self.execute()
     }
 
+    /// Executes an inputted token.
+    ///
+    /// # Errors
+    ///
+    /// See `Self::execute`
     pub fn execute_token(&mut self, token : Token) -> Result<Option<i64>, RuntimeError> {
         self.tokens.push(token);
         self.execute()
     }
 
+    /// Executes the current state of the runtime
+    ///
+    /// # Errors
+    ///
+    /// This will error if the runtime enters and invalid state or attempts an
+    /// invalid opperation.
     pub fn execute(&mut self) -> Result<Option<i64>, RuntimeError> {
         if self.tokens.is_empty() && self.eof {
             return Err(RuntimeError::NoTokens);
@@ -390,6 +426,14 @@ impl Slug {
                 return Err(RuntimeError::BreforeProgramRead);
             }
 
+            #[expect(
+                clippy::cast_sign_loss,
+                reason = "This function will exit if the pointer is negative"
+            )]
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "The chances of someone actually writing a program long enough and complex enough to cause a truncation error is so low that I doubt it would ever happen"
+            )]
             match self.tokens[self.ptr as usize] {
                 Token::Num(i) => self.stack.push(i),
 
@@ -412,7 +456,7 @@ impl Slug {
                         },
                         Opp::Dump => {
                             for (ptr, v) in self.stack.iter().enumerate() {
-                                println!("{ptr} | {v}")
+                                println!("{ptr} | {v}");
                             }
                         },
                         Opp::Top => {
@@ -463,11 +507,15 @@ impl Slug {
                 return Err(RuntimeError::StackLimitHit(self.ptr));
             }
 
-            if self.ptr == self.tokens.len() as i64
-                || self.ptr > self.tokens.len() as i64 && !self.eof
-            {
+            #[expect(
+                clippy::cast_possible_wrap,
+                reason = "The chances of someone writing a program with even over a trillon tokens is insanely low that this would never happen in a real enviromen"
+            )]
+            let len = self.tokens.len() as i64;
+
+            if self.ptr == len || self.ptr > len && !self.eof {
                 break;
-            } else if self.ptr > self.tokens.len() as i64 && self.eof {
+            } else if self.ptr > len && self.eof {
                 return Err(RuntimeError::AfterProgramRead);
             }
         }
@@ -479,6 +527,11 @@ impl Slug {
         }
     }
 
+    /// Exits the program
+    ///
+    /// # Errors
+    /// This will return an error if the stack is empty, otherwise it will
+    /// return the topmost value
     pub fn exit(&mut self) -> Result<i64, RuntimeError> {
         self.stack.pop().ok_or(RuntimeError::NoOut)
     }
