@@ -62,34 +62,9 @@ fn main() -> io::Result<()> {
             token_limit,
             stack_limit,
         } => {
-            match File::open(&file) {
-                Ok(mut data) => {
-                    println!("Running {file}");
-                    let mut buf = String::new();
-                    data.read_to_string(&mut buf)?;
-
-                    let tokens = Tokenizer::parse_text(&buf).expect("Unable to parse text");
-
-                    let mut runtime = Slug {
-                        stack : Vec::new(),
-                        stack_limit,
-                        tokens,
-                        ptr : 0,
-                        token_limit,
-                        tokens_consumed : 0,
-                        eof : true,
-                    };
-
-                    let output = runtime.execute();
-
-                    match output {
-                        Ok(Some(res)) => println!("{res}"),
-                        Err(err) => eprintln!("Error: {err}"),
-                        _ => unreachable!(),
-                    }
-                },
-
-                Err(err) => return Err(err),
+            match run_file(&file, token_limit, stack_limit) {
+                Ok(out) => println!("Result: {out}"),
+                Err(err) => eprintln!("{err:?}"),
             }
         },
         Subcommand::Fmt {
@@ -99,7 +74,7 @@ fn main() -> io::Result<()> {
         } => {
             println!("Formatting {file}");
 
-            format(&file, new_lines, out)?;
+            format_file(&file, new_lines, out)?;
         },
         Subcommand::Repl => {
             let mut input = stdin().lock();
@@ -141,7 +116,7 @@ fn main() -> io::Result<()> {
 ///
 /// # Panics
 /// Panics if the inputed file can't be parsed.
-pub fn format(file : &str, new_lines : Option<bool>, out : Option<String>) -> io::Result<()> {
+pub fn format_file(file : &str, new_lines : Option<bool>, out : Option<String>) -> io::Result<()> {
     match File::options().write(true).read(true).open(file) {
         Ok(mut data) => {
             let mut buf = String::new();
@@ -195,6 +170,73 @@ pub fn format(file : &str, new_lines : Option<bool>, out : Option<String>) -> io
         Err(err) => return Err(err),
     }
     Ok(())
+}
+
+/// Runs a file with some optional parameters
+///
+/// # Errors
+/// This function will error if the file can't be opened and read, if the file
+/// is syntaxtically invalid, or if the runtime errors during execution of the
+/// file
+pub fn run_file(
+    file : &str,
+    token_limit : Option<usize>,
+    stack_limit : Option<usize>,
+) -> Result<i64, ExecutionError> {
+    match File::open(file) {
+        Ok(mut data) => {
+            println!("Running {file}");
+            let mut buf = String::new();
+            data.read_to_string(&mut buf)?;
+
+            let tokens = Tokenizer::parse_text(&buf)?;
+
+            let mut runtime = Slug {
+                stack : Vec::new(),
+                stack_limit,
+                tokens,
+                ptr : 0,
+                token_limit,
+                tokens_consumed : 0,
+                eof : true,
+            };
+
+            let output = runtime.execute();
+
+            match output {
+                Ok(Some(res)) => Ok(res),
+                Err(err) => Err(ExecutionError::RuntimeError(err)),
+                _ => unreachable!(),
+            }
+        },
+
+        Err(err) => Err(ExecutionError::IoError(err)),
+    }
+}
+
+#[derive(Debug)]
+pub enum ExecutionError {
+    IoError(io::Error),
+    ParseTextError(ParseTextError),
+    RuntimeError(RuntimeError),
+}
+
+impl From<ParseTextError> for ExecutionError {
+    fn from(v : ParseTextError) -> Self {
+        Self::ParseTextError(v)
+    }
+}
+
+impl From<RuntimeError> for ExecutionError {
+    fn from(v : RuntimeError) -> Self {
+        Self::RuntimeError(v)
+    }
+}
+
+impl From<io::Error> for ExecutionError {
+    fn from(v : io::Error) -> Self {
+        Self::IoError(v)
+    }
 }
 
 #[derive(Debug)]

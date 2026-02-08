@@ -26,4 +26,4 @@ large_stack_frames = "warn"
 missing_const_for_fn = "deny"
 
 # This lint is not mature enough to be used
-significant_drop_tightening ={ level = "allow", priority = 1}
+significant_drop_tightening = { level = "allow", priority = 1 }
