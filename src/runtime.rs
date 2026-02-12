@@ -55,6 +55,7 @@ impl Slug {
     ///
     /// This will error if the runtime enters and invalid state or attempts
     /// an invalid opperation.
+    #[expect(clippy::too_many_lines, reason = "Boo Hoo Clippy")]
     pub fn execute(&mut self) -> Result<Option<i64>, RuntimeError> {
         if self.tokens.is_empty() && self.eof {
             return Err(RuntimeError::NoTokens);
@@ -74,7 +75,7 @@ impl Slug {
                 reason = "The chances of someone actually writing a program long enough and complex enough to cause a truncation error is so low that I doubt it would ever happen"
             )]
             match self.tokens[self.ptr as usize] {
-                Token::Num(i) => self.stack.push(i),
+                Token::Value(i) => self.stack.push(i),
 
                 Token::Opp(opp) => {
                     match opp {
@@ -126,6 +127,10 @@ impl Slug {
                             self.stack.push(self.ptr);
                         },
                         Opp::Exit => return self.exit().map(Some),
+                        Opp::Goto => {
+                            let v = self.stack.pop().ok_or(RuntimeError::UnderRead(self.ptr))?;
+                            self.ptr = v - 1; // Go to the token using 0 index rather than -1 index
+                        },
                     }
                 },
             }

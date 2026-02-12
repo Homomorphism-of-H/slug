@@ -10,7 +10,7 @@ use crate::opp::Opp;
 
 #[derive(Debug, Clone, Copy, Hash)]
 pub enum Token {
-    Num(i64),
+    Value(i64),
     Opp(Opp),
 }
 
@@ -23,7 +23,7 @@ impl FromStr for Token {
             reason = "Clippy's 'solution' is much less readable"
         )]
         if let Ok(num) = s.parse::<i64>() {
-            Ok(Self::Num(num))
+            Ok(Self::Value(num))
         } else if let Ok(op) = s.parse::<Opp>() {
             Ok(Self::Opp(op))
         } else {
@@ -35,7 +35,7 @@ impl FromStr for Token {
 impl Display for Token {
     fn fmt(&self, f : &mut Formatter<'_>) -> fmt::Result {
         let t = match self {
-            Self::Num(i) => format!("{i}"),
+            Self::Value(i) => format!("{i}"),
             Self::Opp(i) => format!("{i}"),
         };
         write!(f, "{t}")
