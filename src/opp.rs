@@ -27,7 +27,8 @@ pub enum Opp {
     Pos,
     /// Exits the program
     Exit,
-    Goto
+    Goto,
+    Flip,
 }
 
 impl FromStr for Opp {
@@ -47,6 +48,7 @@ impl FromStr for Opp {
             "pos" => Ok(Self::Pos),
             "exit" => Ok(Self::Exit),
             "goto" => Ok(Self::Goto),
+            "flip" => Ok(Self::Flip),
             _ => Err(()),
         }
     }
@@ -66,7 +68,8 @@ impl Display for Opp {
             Self::Div => "div",
             Self::Pos => "pos",
             Self::Exit => "exit",
-            Self::Goto => "goto"
+            Self::Goto => "goto",
+            Self::Flip => "flip",
         };
         write!(f, "{t}")
     }

@@ -131,6 +131,13 @@ impl Slug {
                             let v = self.stack.pop().ok_or(RuntimeError::UnderRead(self.ptr))?;
                             self.ptr = v - 1; // Go to the token using 0 index rather than -1 index
                         },
+                        Opp::Flip => {
+                            let t = self.stack.pop().ok_or(RuntimeError::UnderRead(self.ptr))?;
+                            let b = self.stack[0];
+
+                            self.stack[0] = t;
+                            self.stack.push(b);
+                        },
                     }
                 },
             }
